@@ -68,6 +68,14 @@ body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font);fon
 .filtro label{font-size:12px;color:var(--text-2);font-weight:500}
 .filtro input{font-family:inherit;font-size:14px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);color:var(--text);width:160px}
 .filtro select{font-family:inherit;font-size:14px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);color:var(--text);min-width:160px;max-width:260px}
+.multi{position:relative}
+.multi-btn{font-family:inherit;font-size:14px;padding:8px 32px 8px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);color:var(--text);min-width:160px;max-width:260px;width:100%;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;position:relative}
+.multi-btn::after{content:'▾';position:absolute;right:12px;top:50%;transform:translateY(-50%);color:var(--text-2);font-size:12px}
+.multi-painel{position:absolute;top:calc(100% + 4px);left:0;z-index:50;min-width:220px;max-height:320px;overflow-y:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:0 8px 24px rgba(0,0,0,.15);padding:6px}
+.multi-painel label{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:14px;color:var(--text);font-weight:400;cursor:pointer}
+.multi-painel label:hover{background:var(--g100);color:var(--g900)}
+.multi-painel input{accent-color:var(--brand-700);width:16px;height:16px;margin:0}
+.multi-painel .multi-todos{border-bottom:1px solid var(--border);border-radius:6px 6px 0 0;margin-bottom:4px;font-weight:600}
 
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:16px;min-width:0}
@@ -115,7 +123,7 @@ tr.total td:first-child{background:var(--surface-2)}
   .logo-icon{display:block;height:28px}
   .titulo{border-left:none;padding-left:0}
   .acoes{width:100%;justify-content:space-between}
-  .filtro,.filtro select{width:100%;max-width:none}
+  .filtro,.filtro select,.multi-btn{width:100%;max-width:none}
 }
 </style>
 </head>
@@ -143,7 +151,7 @@ tr.total td:first-child{background:var(--surface-2)}
 
   <div id="conteudo" hidden>
     <section class="filtros">
-      <div class="filtro"><label for="fRef">Referência</label><select id="fRef"></select></div>
+      <div class="filtro"><label for="fRefBtn">Referência</label><div class="multi" id="fRef"><button type="button" class="multi-btn" id="fRefBtn" aria-haspopup="true" aria-expanded="false">Todos</button><div class="multi-painel" id="fRefPainel" hidden></div></div></div>
       <div class="filtro"><label for="fEmp">Empresa</label><select id="fEmp"></select></div>
       <div class="filtro" id="boxSit"><label for="fSit">Situação da NF</label><select id="fSit"></select></div>
       <div class="filtro"><label for="fSta">Status</label><select id="fSta"></select></div>
@@ -311,7 +319,8 @@ function montarBase(linhas){
 
 /* ===================== Estado e filtros ===================== */
 let BASE=[], charts=[], carregando=false, avisosCab=[];
-const FILTROS={fRef:'mes', fEmp:'empresa', fSit:'sit', fSta:'status', fGra:'gravidade'};
+const FILTROS={fEmp:'empresa', fSit:'sit', fSta:'status', fGra:'gravidade'};
+let REF_SEL=new Set();  // meses selecionados no filtro Referência (vazio = Todos)
 const ORDEM_STATUS=['Pago','Pendente','Vencido'], ORDEM_GRAV=['Nível Baixo','Nível Alto','Não se aplica'];
 
 function preencherFiltros(){
@@ -330,13 +339,32 @@ function preencherFiltros(){
     if([...sel.options].some(o=>o.value===atual)) sel.value=atual;
   }
   $('boxSit').hidden = BASE.every(l=>l.sit==='(vazio)');
+  preencherRef(opts('mes'));
 }
+/* Filtro Referência com seleção múltipla */
+function preencherRef(meses){
+  REF_SEL=new Set([...REF_SEL].filter(m=>meses.includes(m)));
+  const p=$('fRefPainel'); p.innerHTML='';
+  const item=(valor,texto,cls)=>{ const lb=document.createElement('label'); if(cls) lb.className=cls;
+    const cb=document.createElement('input'); cb.type='checkbox'; cb.value=valor; lb.appendChild(cb); lb.append(texto); p.appendChild(lb); return cb; };
+  const todos=item('','Todos','multi-todos');
+  todos.addEventListener('change',()=>{ REF_SEL.clear(); sincRef(); render(); });
+  meses.forEach(m=>{ const cb=item(m,nomeMes(m)); cb.addEventListener('change',()=>{ cb.checked?REF_SEL.add(m):REF_SEL.delete(m); if(REF_SEL.size===meses.length) REF_SEL.clear(); sincRef(); render(); }); });
+  sincRef();
+}
+function sincRef(){
+  const cbs=[...$('fRefPainel').querySelectorAll('input')];
+  cbs.forEach(cb=>cb.checked = cb.value==='' ? REF_SEL.size===0 : REF_SEL.has(cb.value));
+  const sel=[...REF_SEL].sort(), b=$('fRefBtn');
+  b.textContent = !sel.length ? 'Todos' : sel.length<=2 ? sel.map(nomeMes).join(', ') : `${sel.length} meses selecionados`;
+  b.title = sel.length ? sel.map(nomeMes).join(', ') : 'Todos';
+}
+function abrirRef(abrir){ $('fRefPainel').hidden=!abrir; $('fRefBtn').setAttribute('aria-expanded',abrir); }
 function filtrar(ignorarRef){
   const busca=norm($('fNF').value);
   return BASE.filter(l=>(!busca||norm(l.nf).includes(busca)) && Object.entries(FILTROS).every(([id,c])=>{
-    if(ignorarRef&&id==='fRef') return true;
     const v=$(id).value; return !v||l[c]===v;
-  }));
+  }) && (ignorarRef||!REF_SEL.size||REF_SEL.has(l.mes)));
 }
 
 /* ===================== Medidas ===================== */
@@ -385,7 +413,7 @@ function serieMensal(ls,medida){
 /* ===================== Render ===================== */
 function render(){
   destruir();
-  const atual=filtrar(false), semRef=filtrar(true), refSel=$('fRef').value;
+  const atual=filtrar(false), semRef=filtrar(true), refSel=[...REF_SEL].sort().pop();
 
   // KPIs: variação vs. mês anterior (mês selecionado, ou último mês com dados)
   const meses=[...new Set(semRef.map(l=>l.mes).filter(Boolean))].sort();
@@ -532,8 +560,12 @@ async function carregar(){
 
 /* ===================== Eventos ===================== */
 Object.keys(FILTROS).forEach(id=>$(id).addEventListener('change',render));
+$('fRefBtn').addEventListener('click',e=>{ e.stopPropagation(); abrirRef($('fRefPainel').hidden); });
+$('fRefPainel').addEventListener('click',e=>e.stopPropagation());
+document.addEventListener('click',()=>abrirRef(false));
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') abrirRef(false); });
 let tBusca; $('fNF').addEventListener('input',()=>{ clearTimeout(tBusca); tBusca=setTimeout(render,250); });
-$('btnLimpar').addEventListener('click',()=>{ Object.keys(FILTROS).forEach(id=>$(id).value=''); $('fNF').value=''; render(); });
+$('btnLimpar').addEventListener('click',()=>{ Object.keys(FILTROS).forEach(id=>$(id).value=''); REF_SEL.clear(); sincRef(); $('fNF').value=''; render(); });
 $('btnAtualizar').addEventListener('click',carregar);
 $('btnSalvarUrl').addEventListener('click',()=>{
   const u=$('inpUrl').value.trim();
